@@ -7,13 +7,14 @@ import {
 } from "./commands.js";
 import { PROVIDER_IDS } from "./types.js";
 import { VERSION } from "./version.js";
+import { versionCommand, VERSION_HELP } from "./versionCommand.js";
 
 export const DESCRIPTION =
   "Report local agent-provider quota windows and model quota evidence.";
 
-export const TOP_HELP = `usage: quota-axi [quota|auth|models] [flags]
-commands[3]:
-  (none)=quota, auth, models
+export const TOP_HELP = `usage: quota-axi [quota|auth|models|version] [flags]
+commands[4]:
+  (none)=quota, auth, models, version
 output:
   Default TOON reports local quota evidence. models is a deterministic data join; --sort runway is explicit opt-in ordering. --tui renders a live human terminal report instead (q quits).
 notes:
@@ -57,6 +58,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
       quota: quotaCommand,
       auth: authCommand,
       models: modelsCommand,
+      version: versionCommand,
     },
     // `quota` is the implicit default command, so the bare-invocation home view
     // is never reached (see normalizeArgv); wiring it keeps the SDK contract.
@@ -65,7 +67,9 @@ export async function main(options: MainOptions = {}): Promise<void> {
     getCommandHelp: (command) =>
       command === "quota" || command === "auth" || command === "models"
         ? TOP_HELP
-        : undefined,
+        : command === "version"
+          ? VERSION_HELP
+          : undefined,
   });
 }
 
@@ -101,7 +105,8 @@ export function normalizeArgv(raw: string[]): string[] {
     first === "quota" ||
     first === "auth" ||
     first === "models" ||
-    first === "update"
+    first === "update" ||
+    first === "version"
   ) {
     return raw;
   }
@@ -145,7 +150,8 @@ function findCommand(raw: string[]): number {
       arg === "quota" ||
       arg === "auth" ||
       arg === "models" ||
-      arg === "update"
+      arg === "update" ||
+      arg === "version"
     ) {
       return index;
     }
