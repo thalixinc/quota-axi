@@ -1,10 +1,19 @@
-//! quota-axi — the AXI CLI. This slice ships the `version`/`update` verbs and the bare
-//! `-v`/`-V`/`--version` fast path; `quota`/`auth`/`models` and the full flag set port in
-//! follow-on tickets (epic #8).
+//! quota-axi — the AXI CLI. `quota` is the implicit default command; `version`/`update` are
+//! the #368 self-update verbs. `auth`/`models`/`--tui` port in follow-on tickets (epic #8).
 
+mod advice;
+mod args;
+mod cache;
+mod commands;
 mod error;
 mod help;
+mod interpretation;
+mod lib;
+mod pace;
+mod providers;
+mod render;
 mod toon;
+mod types;
 mod version;
 
 use clap::{Parser, Subcommand};
@@ -27,6 +36,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Report local agent-provider quota windows (the default command).
+    Quota {
+        /// Quota flags — parsed by the quota flag parser for exact error framing.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Print the installed version and report an available update from the GitHub release feed.
     Version {
         /// Update now when a newer version is published (no prompt).
@@ -51,86 +66,94 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Err(e) = run(&args) {
-        // quota-axi writes its error surface to stdout (matching the Node build).
-        println!("{}", toon::error(&e.message, e.code, &e.suggestions));
-        std::process::exit(e.exit_code());
+    match run(&args) {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            // quota-axi writes its error surface to stdout (matching the Node build).
+            println!("{}", toon::error(&e.message, e.code, &e.suggestions));
+            std::process::exit(e.exit_code());
+        }
     }
 }
 
-fn run(args: &[String]) -> Result<()> {
+fn run(args: &[String]) -> Result<i32> {
     // Help wins over every other flag, matching the Node `normalizeArgv` ordering.
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{}", help::help());
-        return Ok(());
+        return Ok(0);
     }
     // A bare version flag prints the bare version (script-safe; `-v`/`-V`/`--version`).
     if args.iter().any(|a| a == "-v" || a == "-V" || a == "--version") {
         println!("{}", version::VERSION);
-        return Ok(());
+        return Ok(0);
     }
 
-    // No command: show help (the implicit `quota` default arrives with the quota port).
-    let Some(cmd) = args.first() else {
-        println!("{}", help::help());
-        return Ok(());
-    };
-    let rest = &args[1..];
-
-    // Validate each command's flags up front so a typo gets the exact AXI error, then parse.
-    match cmd.as_str() {
-        "version" => check_args(rest, &[("--yes", false)])?,
-        "update" => check_args(rest, &[("--check", false), ("--json", false)])?,
-        other if other.starts_with('-') => {
-            return Err(Error::usage(format!("unknown argument: {other}")).with_suggestions(
-                vec!["Run `quota-axi --help` for supported commands and flags".into()],
-            ));
-        }
-        other => {
-            return Err(Error::usage(format!("Unknown command: {other}"))
-                .with_suggestions(vec!["Run `--help` to see available commands".into()]));
-        }
-    }
-
-    let cli = Cli::try_parse_from(std::iter::once(BIN.to_string()).chain(args.iter().cloned()))
-        .map_err(|e| Error::usage(e.to_string()))?;
+    // Route a flag-first or bare invocation onto the implicit `quota` command.
+    let normalized = normalize_argv(args);
+    let cli = Cli::try_parse_from(std::iter::once(BIN.to_string()).chain(normalized.iter().cloned()))
+        .map_err(|e| map_clap_error(e, &normalized))?;
 
     match cli.command {
-        Some(Command::Version { yes }) => version::cmd_version(yes),
-        Some(Command::Update { check, json }) => version::cmd_update(check, json),
+        Some(Command::Quota { args }) => {
+            let bin_path = std::env::args().next().unwrap_or_else(|| BIN.to_string());
+            let (output, code) = commands::quota_command(&args, &bin_path)?;
+            println!("{output}");
+            Ok(code)
+        }
+        Some(Command::Version { yes }) => {
+            version::cmd_version(yes)?;
+            Ok(0)
+        }
+        Some(Command::Update { check, json }) => {
+            version::cmd_update(check, json)?;
+            Ok(0)
+        }
         None => {
             println!("{}", help::help());
-            Ok(())
+            Ok(0)
         }
     }
 }
 
-/// Reject an unknown flag or a stray positional for a command, with the exact AXI error.
-fn check_args(rest: &[String], allowed: &[(&str, bool)]) -> Result<()> {
-    let mut it = rest.iter();
-    while let Some(a) = it.next() {
-        let name = a.split('=').next().unwrap_or(a);
-        if !a.starts_with('-') {
-            return Err(Error::usage(format!("unknown argument: {a}"))
-                .with_suggestions(vec![
-                    "Run `quota-axi --help` for supported commands and flags".into(),
-                ]));
-        }
-        match allowed.iter().find(|(f, _)| *f == name) {
-            // A value flag consumes its next token; none exist in this slice, kept for parity.
-            Some((_, true)) if !a.contains('=') => {
-                it.next();
-            }
-            Some(_) => {}
-            None => {
-                return Err(Error::usage(format!("unknown argument: {name}"))
-                    .with_suggestions(vec![
-                        "Run `quota-axi --help` for supported commands and flags".into(),
-                    ]));
-            }
-        }
+/// `quota` is the implicit default: a bare call or a flag-first call means "run quota"
+/// (mirrors the Node `normalizeArgv`). `auth`/`models` are recognized and surface a
+/// truthful not-yet-ported error rather than an unknown command.
+fn normalize_argv(raw: &[String]) -> Vec<String> {
+    if raw.is_empty() {
+        return vec!["quota".to_string()];
     }
-    Ok(())
+    let first = raw[0].as_str();
+    if matches!(first, "quota" | "version" | "update" | "auth" | "models") {
+        return raw.to_vec();
+    }
+    if first.starts_with('-') {
+        let mut out = vec!["quota".to_string()];
+        out.extend(raw.iter().cloned());
+        return out;
+    }
+    raw.to_vec()
+}
+
+fn map_clap_error(e: clap::Error, args: &[String]) -> Error {
+    use clap::error::ErrorKind;
+    match e.kind() {
+        ErrorKind::UnknownArgument => {
+            let flag = args
+                .iter()
+                .find(|a| a.starts_with('-'))
+                .cloned()
+                .unwrap_or_default();
+            Error::usage(format!("unknown argument: {flag}")).with_suggestions(vec![
+                "Run `quota-axi --help` for supported commands and flags".into(),
+            ])
+        }
+        ErrorKind::InvalidSubcommand => {
+            let cmd = args.first().cloned().unwrap_or_default();
+            Error::usage(format!("Unknown command: {cmd}"))
+                .with_suggestions(vec!["Run `--help` to see available commands".into()])
+        }
+        _ => Error::usage(e.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -142,40 +165,38 @@ mod tests {
     }
 
     #[test]
+    fn normalize_routes_flag_first_to_quota() {
+        assert_eq!(normalize_argv(&[]), v(&["quota"]));
+        assert_eq!(normalize_argv(&v(&["--json"])), v(&["quota", "--json"]));
+        assert_eq!(normalize_argv(&v(&["--provider", "agy"])), v(&["quota", "--provider", "agy"]));
+        assert_eq!(normalize_argv(&v(&["version"])), v(&["version"]));
+        assert_eq!(normalize_argv(&v(&["foo"])), v(&["foo"]));
+    }
+
+    #[test]
     fn version_flags_print_bare_version() {
         for flag in ["-v", "-V", "--version"] {
-            assert!(run(&v(&[flag])).is_ok());
+            assert_eq!(run(&v(&[flag])).unwrap(), 0);
         }
     }
 
     #[test]
     fn help_flag_is_not_an_error() {
-        assert!(run(&v(&["--help"])).is_ok());
-        assert!(run(&v(&["-h"])).is_ok());
-        // help beats other flags (Node normalizeArgv ordering).
-        assert!(run(&v(&["version", "--help"])).is_ok());
+        assert_eq!(run(&v(&["--help"])).unwrap(), 0);
+        assert_eq!(run(&v(&["version", "--help"])).unwrap(), 0);
     }
 
     #[test]
-    fn unknown_command_and_flag_are_usage_errors() {
+    fn unknown_command_is_usage_error() {
         let e = run(&v(&["foo"])).unwrap_err();
         assert_eq!(e.message, "Unknown command: foo");
         assert!(e.usage);
-
-        let e = run(&v(&["version", "--nope"])).unwrap_err();
-        assert_eq!(e.message, "unknown argument: --nope");
-        assert!(e.usage);
-
-        let e = run(&v(&["--nope"])).unwrap_err();
-        assert_eq!(e.message, "unknown argument: --nope");
     }
 
     #[test]
     fn version_update_flags_parse() {
-        assert!(run(&v(&["version"])).is_ok());
-        assert!(run(&v(&["version", "--yes"])).is_ok());
-        assert!(run(&v(&["update"])).is_ok());
-        assert!(run(&v(&["update", "--check"])).is_ok());
-        assert!(run(&v(&["update", "--check", "--json"])).is_ok());
+        assert_eq!(run(&v(&["version"])).unwrap(), 0);
+        assert_eq!(run(&v(&["version", "--yes"])).unwrap(), 0);
+        assert_eq!(run(&v(&["update", "--check"])).unwrap(), 0);
     }
 }
