@@ -1,15 +1,19 @@
-//! Top-level help. The surface grows as commands port: this slice ships `version`/`update`,
-//! with `quota`/`auth`/`models` and the full flag set landing in follow-on tickets (epic #8).
+//! Top-level help. The surface grows as commands port: this slice ships `quota` (the implicit
+//! default), `version`, and `update`; `auth`/`models`/`--tui` land in follow-on tickets (epic #8).
 
 pub fn help() -> String {
-    "usage: quota-axi [version|update] [flags]\n\
-     commands[2]:\n\
-     \x20 version, update\n\
+    "usage: quota-axi [quota|version|update] [flags]\n\
+     commands[3]:\n\
+     \x20 (none)=quota, version, update\n\
      output:\n\
-     \x20 `version` prints the installed version and reports an available update from the GitHub release feed; `update` installs it (cargo install --git).\n\
-     flags[5]:\n\
-     \x20 --yes, --check, --json, --help, -v/--version\n\
+     \x20 Default TOON reports local quota evidence (Antigravity via loopback). `version` prints the installed version and an available update from the GitHub release feed; `update` installs it (cargo install --git).\n\
+     flags[11]:\n\
+     \x20 --provider <claude,codex,cursor,copilot,grok,kimi,zai,agy,alibaba,opencode-go>, --json, --full, --tui, --refresh <30s-24h>, --once, --allow-keychain-prompt, --no-credential-refresh, --yes, --check, --help, -v/--version\n\
      examples:\n\
+     \x20 quota-axi\n\
+     \x20 quota-axi --provider agy\n\
+     \x20 quota-axi --json\n\
+     \x20 quota-axi --full\n\
      \x20 quota-axi version\n\
      \x20 quota-axi version --yes\n\
      \x20 quota-axi update\n\
@@ -36,7 +40,7 @@ mod tests {
             .parse()
             .unwrap();
         let listed = lines.next().unwrap().trim().split(", ").count();
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
         assert_eq!(listed, n, "the command list and its count disagree");
     }
 }
