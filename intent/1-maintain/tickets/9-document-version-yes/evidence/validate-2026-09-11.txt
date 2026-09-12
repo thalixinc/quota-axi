@@ -1,0 +1,47 @@
+Validation — #9 Document `version [--yes]` in CLI help and README
+Date: 2026-09-11
+
+$ node dist/bin/quota-axi.js --help
+...
+examples:
+  quota-axi
+  quota-axi --provider claude
+  quota-axi --provider agy
+  quota-axi --provider cursor,copilot,grok,kimi,zai
+  quota-axi --json
+  quota-axi --full
+  quota-axi --tui
+  quota-axi --tui --refresh 1m
+  quota-axi --tui --once
+  quota-axi --no-credential-refresh
+  quota-axi --tui --no-credential-refresh
+  quota-axi auth
+  quota-axi models --intelligence high
+  quota-axi models --sort runway
+  quota-axi version
+  quota-axi version --yes
+...
+=> examples include `quota-axi version` and `quota-axi version --yes`.
+
+$ node dist/bin/quota-axi.js version
+quota-axi 0.1.41
+exit=0
+
+$ node dist/bin/quota-axi.js version --yes
+quota-axi 0.1.41
+exit=0
+=> up-to-date path: bare version line, exit 0, no upgrade line (local 0.1.41 ==
+   npm latest 0.1.41; no install performed).
+
+$ pnpm test
+Test Files  46 passed (46)
+Tests       913 passed (913)
+
+$ pnpm run lint
+(clean)
+
+$ pnpm run build:skill -- --check
+skills/quota-axi/SKILL.md is up to date.
+
+README CLI Reference command table now reads:
+| `version [--yes]` | Print installed version; upgrade on `--yes` when a newer version is published |

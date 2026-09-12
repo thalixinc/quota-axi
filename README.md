@@ -291,13 +291,14 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ## CLI Reference
 
-| Command          | Description                                          |
-| ---------------- | ---------------------------------------------------- |
-| `quota-axi`      | Report supported local quota windows                 |
-| `auth`           | Report local auth-source availability, no values     |
-| `models`         | Join curated model buckets with local quota evidence |
-| `update`         | Upgrade quota-axi to the latest published version    |
-| `update --check` | Report current vs. latest without installing         |
+| Command           | Description                                                                   |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `quota-axi`       | Report supported local quota windows                                          |
+| `auth`            | Report local auth-source availability, no values                              |
+| `models`          | Join curated model buckets with local quota evidence                          |
+| `update`          | Upgrade quota-axi to the latest published version                             |
+| `update --check`  | Report current vs. latest without installing                                  |
+| `version [--yes]` | Print installed version; upgrade on `--yes` when a newer version is published |
 
 ### Flags
 
