@@ -36,6 +36,8 @@ examples:
   quota-axi auth
   quota-axi models --intelligence high
   quota-axi models --sort runway
+  quota-axi version
+  quota-axi version --yes
 `;
 
 type MainOptions = {
